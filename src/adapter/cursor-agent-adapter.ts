@@ -1,0 +1,720 @@
+/**
+ * Cursor Agent ACP Adapter - Main Entry Point
+ *
+ * This is the main adapter class that orchestrates all components:
+ * - ACP protocol handling (initialization, sessions, prompts)
+ * - Cursor CLI integration
+ * - Tool registry and execution
+ * - HTTP/stdio transport handling
+ */
+
+import { createServer, Server } from 'http';
+import {
+  AdapterError,
+  ProtocolError,
+  type AdapterConfig,
+  type AdapterOptions,
+  type Logger,
+  type AcpRequest,
+  type AcpResponse,
+} from '../types';
+import { createLogger } from '../utils/logger';
+import { validateConfig } from '../utils/config';
+import { SessionManager } from '../session/manager';
+import { CursorCliBridge } from '../cursor/cli-bridge';
+import { ToolRegistry } from '../tools/registry';
+import { InitializationHandler } from '../protocol/initialization';
+import { PromptHandler } from '../protocol/prompt';
+
+export class CursorAgentAdapter {
+  private config: AdapterConfig;
+  private logger: Logger;
+  private isRunning = false;
+  private startTime?: Date;
+
+  // Core components
+  private sessionManager?: SessionManager;
+  private cursorBridge?: CursorCliBridge;
+  private toolRegistry?: ToolRegistry;
+  private initializationHandler?: InitializationHandler;
+  private promptHandler?: PromptHandler;
+
+  // Transport servers
+  private httpServer?: Server;
+
+  constructor(config: AdapterConfig, options: AdapterOptions = {}) {
+    this.config = config;
+    this.logger =
+      options.logger ||
+      createLogger({
+        level: config.logLevel,
+      });
+
+    this.logger.debug('CursorAgentAdapter created', { config });
+
+    // Validate configuration
+    const validation = validateConfig(this.config);
+    if (!validation.valid) {
+      throw new AdapterError(
+        `Invalid configuration: ${validation.errors.join(', ')}`,
+        'CONFIG_ERROR'
+      );
+    }
+  }
+
+  /**
+   * Initialize all adapter components
+   */
+  async initialize(): Promise<void> {
+    if (this.isRunning) {
+      throw new AdapterError('Adapter is already running', 'ADAPTER_RUNNING');
+    }
+
+    try {
+      this.logger.info('Initializing Cursor Agent ACP Adapter...');
+
+      // Initialize core components
+      await this.initializeComponents();
+
+      // Verify Cursor CLI integration
+      await this.verifyCursorIntegration();
+
+      // Validate tool configuration
+      this.validateToolConfiguration();
+
+      this.logger.info('Adapter initialization completed successfully');
+    } catch (error) {
+      this.logger.error('Adapter initialization failed', error);
+      await this.cleanup();
+      throw new AdapterError(
+        `Initialization failed: ${error instanceof Error ? error.message : String(error)}`,
+        'INIT_ERROR',
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  /**
+   * Start the adapter with stdio transport (for ACP clients)
+   */
+  async startStdio(): Promise<void> {
+    if (this.isRunning) {
+      throw new AdapterError('Adapter is already running', 'ADAPTER_RUNNING');
+    }
+
+    try {
+      this.logger.info('Starting ACP adapter with stdio transport');
+      this.startTime = new Date();
+      this.isRunning = true;
+
+      // Setup stdio handlers
+      this.setupStdioTransport();
+
+      this.logger.info('Adapter started successfully with stdio transport');
+    } catch (error) {
+      this.isRunning = false;
+      throw new AdapterError(
+        `Failed to start stdio transport: ${error instanceof Error ? error.message : String(error)}`,
+        'STARTUP_ERROR',
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  /**
+   * Start the adapter with HTTP transport
+   */
+  async startHttpServer(port: number): Promise<void> {
+    if (this.isRunning) {
+      throw new AdapterError('Adapter is already running', 'ADAPTER_RUNNING');
+    }
+
+    try {
+      this.logger.info(
+        `Starting ACP adapter with HTTP transport on port ${port}`
+      );
+      this.startTime = new Date();
+
+      // Create HTTP server
+      this.httpServer = createServer(this.handleHttpRequest.bind(this));
+
+      await new Promise<void>((resolve, reject) => {
+        this.httpServer!.listen(port, () => {
+          this.isRunning = true;
+          this.logger.info(`HTTP server listening on port ${port}`);
+          resolve();
+        });
+
+        this.httpServer!.on('error', (error) => {
+          reject(error);
+        });
+      });
+    } catch (error) {
+      this.isRunning = false;
+      throw new AdapterError(
+        `Failed to start HTTP server: ${error instanceof Error ? error.message : String(error)}`,
+        'STARTUP_ERROR',
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  /**
+   * Shutdown the adapter gracefully
+   */
+  async shutdown(): Promise<void> {
+    if (!this.isRunning) {
+      this.logger.warn('Adapter is not running');
+      return;
+    }
+
+    try {
+      this.logger.info('Shutting down ACP adapter...');
+
+      // Close HTTP server
+      if (this.httpServer) {
+        await new Promise<void>((resolve) => {
+          this.httpServer!.close(() => resolve());
+        });
+        delete this.httpServer;
+      }
+
+      // Cleanup components
+      await this.cleanup();
+
+      this.isRunning = false;
+      this.logger.info('ACP adapter shut down successfully');
+    } catch (error) {
+      this.logger.error('Error during shutdown', error);
+      throw new AdapterError(
+        `Failed to shutdown adapter: ${error instanceof Error ? error.message : String(error)}`,
+        'SHUTDOWN_ERROR',
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  /**
+   * Process ACP request and return response
+   */
+  async processRequest(request: AcpRequest): Promise<AcpResponse> {
+    this.logger.debug('Processing ACP request', {
+      method: request.method,
+      id: request.id,
+    });
+
+    try {
+      switch (request.method) {
+        case 'initialize':
+          return await this.handleInitialize(request);
+
+        case 'session/new':
+          return await this.handleSessionNew(request);
+
+        case 'session/load':
+          return await this.handleSessionLoad(request);
+
+        case 'session/list':
+          return await this.handleSessionList(request);
+
+        case 'session/update':
+          return await this.handleSessionUpdate(request);
+
+        case 'session/delete':
+          return await this.handleSessionDelete(request);
+
+        case 'session/prompt':
+          return await this.handleSessionPrompt(request);
+
+        case 'tools/list':
+          return await this.handleToolsList(request);
+
+        case 'tools/call':
+          return await this.handleToolCall(request);
+
+        default:
+          throw new ProtocolError(`Unknown method: ${request.method}`);
+      }
+    } catch (error) {
+      this.logger.error('Request processing failed', { error, request });
+
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: error instanceof ProtocolError ? -32601 : -32603,
+          message: error instanceof Error ? error.message : 'Unknown error',
+          data:
+            error instanceof Error
+              ? { name: error.name, stack: error.stack }
+              : undefined,
+        },
+      };
+    }
+  }
+
+  /**
+   * Get adapter status and metrics
+   */
+  getStatus(): {
+    running: boolean;
+    uptime?: number;
+    config: AdapterConfig;
+    components: Record<string, boolean>;
+    metrics: Record<string, any>;
+  } {
+    const uptime = this.startTime
+      ? Date.now() - this.startTime.getTime()
+      : undefined;
+
+    const result: any = {
+      running: this.isRunning,
+      config: this.config,
+      components: {
+        sessionManager: Boolean(this.sessionManager),
+        cursorBridge: Boolean(this.cursorBridge),
+        toolRegistry: Boolean(this.toolRegistry),
+        initializationHandler: Boolean(this.initializationHandler),
+        promptHandler: Boolean(this.promptHandler),
+      },
+      metrics: {
+        sessions: this.sessionManager?.getMetrics() || {},
+        tools: this.toolRegistry?.getMetrics() || {},
+      },
+    };
+
+    if (uptime !== undefined) {
+      result.uptime = uptime;
+    }
+
+    return result;
+  }
+
+  // Private methods
+
+  private async initializeComponents(): Promise<void> {
+    // Initialize SessionManager
+    this.sessionManager = new SessionManager(this.config, this.logger);
+
+    // Initialize CursorCliBridge
+    this.cursorBridge = new CursorCliBridge(this.config, this.logger);
+
+    // Initialize ToolRegistry
+    this.toolRegistry = new ToolRegistry(this.config, this.logger);
+
+    // Initialize protocol handlers
+    this.initializationHandler = new InitializationHandler(
+      this.config,
+      this.logger
+    );
+
+    this.promptHandler = new PromptHandler({
+      sessionManager: this.sessionManager,
+      cursorBridge: this.cursorBridge,
+      config: this.config,
+      logger: this.logger,
+      sendNotification: this.sendNotification.bind(this),
+    });
+
+    this.logger.debug('All components initialized');
+  }
+
+  private async verifyCursorIntegration(): Promise<void> {
+    if (!this.cursorBridge) {
+      throw new AdapterError(
+        'CursorCliBridge not initialized',
+        'COMPONENT_ERROR'
+      );
+    }
+
+    try {
+      // Check if cursor-agent is available
+      const version = await this.cursorBridge.getVersion();
+      this.logger.info(`Cursor CLI version: ${version}`);
+
+      // Check authentication status
+      const authStatus = await this.cursorBridge.checkAuthentication();
+      if (!authStatus.authenticated) {
+        this.logger.warn('Cursor CLI not authenticated', authStatus);
+      } else {
+        this.logger.info('Cursor CLI authenticated', {
+          user: authStatus.user,
+          email: authStatus.email,
+        });
+      }
+    } catch (error) {
+      this.logger.error('Cursor CLI verification failed', error);
+      throw new AdapterError(
+        `Cursor CLI not available: ${error instanceof Error ? error.message : String(error)}`,
+        'CURSOR_ERROR',
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  private validateToolConfiguration(): void {
+    if (!this.toolRegistry) {
+      throw new AdapterError('ToolRegistry not initialized', 'COMPONENT_ERROR');
+    }
+
+    const errors = this.toolRegistry.validateConfiguration();
+    if (errors.length > 0) {
+      throw new AdapterError(
+        `Tool configuration errors: ${errors.join(', ')}`,
+        'CONFIG_ERROR'
+      );
+    }
+
+    this.logger.info(
+      `Tools initialized: ${this.toolRegistry.getTools().length} tools available`
+    );
+  }
+
+  /**
+   * Send a notification to the client via stdout
+   */
+  sendNotification(notification: import('../types').AcpNotification): void {
+    const notificationStr = JSON.stringify(notification);
+    this.logger.debug('Sending notification to client', {
+      method: notification.method,
+      notificationLength: notificationStr.length,
+      fullNotification: notificationStr,
+    });
+    process.stdout.write(`${notificationStr}\n`);
+  }
+
+  private setupStdioTransport(): void {
+    let buffer = '';
+
+    this.logger.debug('Setting up stdio transport', {
+      stdinIsTTY: process.stdin.isTTY,
+      stdoutIsTTY: process.stdout.isTTY,
+      stderrIsTTY: process.stderr.isTTY,
+      stdinReadable: process.stdin.readable,
+      stdoutWritable: process.stdout.writable,
+    });
+
+    process.stdin.on('data', (data) => {
+      buffer += data.toString();
+
+      this.logger.debug('Received data on stdin', {
+        dataLength: data.length,
+        bufferLength: buffer.length,
+      });
+
+      // Process complete JSON-RPC messages
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (line.trim()) {
+          this.processStdioMessage(line.trim());
+        }
+      }
+    });
+
+    process.stdin.on('end', () => {
+      this.logger.info('Stdin closed, shutting down adapter');
+      this.shutdown().catch((error) => {
+        this.logger.error('Error during stdin shutdown', error);
+        process.exit(1);
+      });
+    });
+  }
+
+  private async processStdioMessage(message: string): Promise<void> {
+    const request: AcpRequest = JSON.parse(message);
+    const response = await this.processRequest(request);
+
+    // Validate response before sending
+    const responseStr = JSON.stringify(response);
+    this.logger.debug('Sending response to Zed', {
+      method: request.method,
+      id: request.id,
+      responseLength: responseStr.length,
+      hasResult: !!response.result,
+      hasError: !!response.error,
+      fullResponse: responseStr,
+    });
+
+    // Send response to stdout
+    process.stdout.write(`${responseStr}\n`);
+  }
+
+  private async handleHttpRequest(req: any, res: any): Promise<void> {
+    // Set CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+      return;
+    }
+
+    try {
+      let body = '';
+      req.on('data', (chunk: Buffer) => {
+        body += chunk.toString();
+      });
+
+      req.on('end', async () => {
+        try {
+          const request: AcpRequest = JSON.parse(body);
+          const response = await this.processRequest(request);
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(response));
+        } catch (error) {
+          this.logger.error('Error processing HTTP request', { error, body });
+
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: null,
+              error: {
+                code: -32700,
+                message: 'Parse error',
+                data: error instanceof Error ? error.message : String(error),
+              },
+            })
+          );
+        }
+      });
+    } catch (error) {
+      this.logger.error('HTTP request error', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal server error' }));
+    }
+  }
+
+  // ACP Method handlers
+
+  private async handleInitialize(request: AcpRequest): Promise<AcpResponse> {
+    if (!this.initializationHandler) {
+      throw new ProtocolError('Initialization handler not available');
+    }
+
+    const params = request.params as any;
+    const result = await this.initializationHandler.initialize({
+      protocolVersion: params?.protocolVersion,
+      clientInfo: params?.clientInfo,
+    });
+
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result,
+    };
+  }
+
+  private async handleSessionNew(request: AcpRequest): Promise<AcpResponse> {
+    if (!this.sessionManager) {
+      throw new ProtocolError('Session manager not available');
+    }
+
+    const params = (request.params as any) || {};
+    const sessionData = await this.sessionManager.createSession(
+      params['metadata']
+    );
+
+    // Per ACP spec: NewSessionResponse must contain sessionId (required),
+    // and optionally modes and models. No other fields.
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        sessionId: sessionData.id,
+        // modes: null, // Optional - omit if not supported
+        // models: null, // Optional - omit if not supported
+      },
+    };
+  }
+
+  private async handleSessionLoad(request: AcpRequest): Promise<AcpResponse> {
+    if (!this.sessionManager) {
+      throw new ProtocolError('Session manager not available');
+    }
+
+    const params = (request.params as any) || {};
+    if (!params['sessionId']) {
+      throw new ProtocolError('sessionId is required');
+    }
+
+    const sessionData = await this.sessionManager.loadSession(
+      params['sessionId']
+    );
+
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        sessionId: sessionData.id,
+        metadata: sessionData.metadata,
+        conversation: sessionData.conversation,
+      },
+    };
+  }
+
+  private async handleSessionList(request: AcpRequest): Promise<AcpResponse> {
+    if (!this.sessionManager) {
+      throw new ProtocolError('Session manager not available');
+    }
+
+    const params = (request.params as any) || {};
+    const result = await this.sessionManager.listSessions(
+      params['limit'],
+      params['offset'],
+      params['filter']
+    );
+
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        sessions: result.items,
+        total: result.total,
+        hasMore: result.hasMore,
+      },
+    };
+  }
+
+  private async handleSessionUpdate(request: AcpRequest): Promise<AcpResponse> {
+    if (!this.sessionManager) {
+      throw new ProtocolError('Session manager not available');
+    }
+
+    const params = (request.params as any) || {};
+    if (!params['sessionId']) {
+      throw new ProtocolError('sessionId is required');
+    }
+
+    await this.sessionManager.updateSession(
+      params['sessionId'],
+      params['metadata'] || {}
+    );
+
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        sessionId: params['sessionId'],
+        updated: true,
+      },
+    };
+  }
+
+  private async handleSessionDelete(request: AcpRequest): Promise<AcpResponse> {
+    if (!this.sessionManager) {
+      throw new ProtocolError('Session manager not available');
+    }
+
+    const params = (request.params as any) || {};
+    if (!params['sessionId']) {
+      throw new ProtocolError('sessionId is required');
+    }
+
+    await this.sessionManager.deleteSession(params['sessionId']);
+
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        sessionId: params['sessionId'],
+        deleted: true,
+      },
+    };
+  }
+
+  private async handleSessionPrompt(request: AcpRequest): Promise<AcpResponse> {
+    if (!this.promptHandler) {
+      throw new ProtocolError('Prompt handler not available');
+    }
+    return this.promptHandler.processPrompt(request);
+  }
+
+  private async handleToolsList(request: AcpRequest): Promise<AcpResponse> {
+    if (!this.toolRegistry) {
+      throw new ProtocolError('Tool registry not available');
+    }
+
+    const tools = this.toolRegistry.getTools();
+
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        tools: tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+        })),
+      },
+    };
+  }
+
+  private async handleToolCall(request: AcpRequest): Promise<AcpResponse> {
+    if (!this.toolRegistry) {
+      throw new ProtocolError('Tool registry not available');
+    }
+
+    const params = (request.params as any) || {};
+    if (!params['name']) {
+      throw new ProtocolError('tool name is required');
+    }
+
+    const toolCall = {
+      id: request.id.toString(),
+      name: params['name'],
+      parameters: params['parameters'] || {},
+    };
+
+    const result = await this.toolRegistry.executeTool(toolCall);
+
+    // If the tool execution failed, return an error response
+    if (!result.success) {
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: -32603,
+          message: result.error || 'Tool execution failed',
+          data: result.metadata,
+        },
+      };
+    }
+
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result,
+    };
+  }
+
+  private async cleanup(): Promise<void> {
+    this.logger.debug('Cleaning up adapter components');
+
+    // Cleanup in reverse order of initialization
+    if (this.promptHandler) {
+      await this.promptHandler.cleanup();
+    }
+
+    if (this.cursorBridge) {
+      await this.cursorBridge.close();
+    }
+
+    if (this.sessionManager) {
+      await this.sessionManager.cleanup();
+    }
+
+    this.logger.debug('Cleanup completed');
+  }
+}
