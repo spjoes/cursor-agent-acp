@@ -437,6 +437,7 @@ export type McpServerConfig =
 export interface SessionNewParams {
   cwd: string; // Per ACP spec: absolute path to working directory
   mcpServers: McpServerConfig[]; // Array of MCP server configs
+  metadata?: Partial<SessionMetadata>; // Optional: session metadata (name, description, tags, etc.)
 }
 
 export interface SessionNewResult {
@@ -515,6 +516,10 @@ export interface SessionPromptParams {
   content: ContentBlock[];
   stream?: boolean;
   metadata?: Record<string, any>;
+}
+
+export interface SessionCancelParams {
+  sessionId: string; // Required: session to cancel
 }
 
 export interface MessagePart {
