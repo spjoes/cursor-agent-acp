@@ -6,6 +6,9 @@
  */
 
 export default async (): Promise<void> => {
+  // Give adequate time for all child processes to terminate
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
   // Clear any lingering timers
   if (global.gc) {
     global.gc();
@@ -13,12 +16,7 @@ export default async (): Promise<void> => {
 
   // Force cleanup of any remaining handles
   if (process.env.NODE_ENV === 'test') {
-    // Give a small delay to allow cleanup
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    // Force process exit if needed (Jest will handle this gracefully)
-    if (process.listenerCount('exit') === 0) {
-      process.exit(0);
-    }
+    // Give another small delay to allow cleanup
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
 };

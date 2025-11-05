@@ -85,6 +85,8 @@ describe('Tool System Integration', () => {
     } catch (error) {
       // Ignore cleanup errors
     }
+    // Give time for all async cleanup to complete
+    await new Promise((resolve) => setTimeout(resolve, 100));
   });
 
   describe('Tool Registry Integration', () => {

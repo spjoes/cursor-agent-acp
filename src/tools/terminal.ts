@@ -56,9 +56,15 @@ export class TerminalToolProvider implements ToolProvider {
     });
 
     // Cleanup process on exit
-    process.on('exit', () => this.cleanup());
-    process.on('SIGINT', () => this.cleanup());
-    process.on('SIGTERM', () => this.cleanup());
+    process.on('exit', () => {
+      this.cleanup().catch((err) => this.logger.error('Cleanup error on exit', err));
+    });
+    process.on('SIGINT', () => {
+      this.cleanup().catch((err) => this.logger.error('Cleanup error on SIGINT', err));
+    });
+    process.on('SIGTERM', () => {
+      this.cleanup().catch((err) => this.logger.error('Cleanup error on SIGTERM', err));
+    });
   }
 
   getTools(): Tool[] {
@@ -603,12 +609,13 @@ export class TerminalToolProvider implements ToolProvider {
       });
 
       // Handle timeout
+      let forceKillTimeoutId: NodeJS.Timeout | undefined;
       const timeoutId = setTimeout(() => {
         if (!childProcess.killed) {
           childProcess.kill('SIGTERM');
 
           // Force kill after additional timeout
-          setTimeout(() => {
+          forceKillTimeoutId = setTimeout(() => {
             if (!childProcess.killed) {
               childProcess.kill('SIGKILL');
             }
@@ -625,6 +632,9 @@ export class TerminalToolProvider implements ToolProvider {
 
       childProcess.on('close', () => {
         clearTimeout(timeoutId);
+        if (forceKillTimeoutId) {
+          clearTimeout(forceKillTimeoutId);
+        }
       });
     });
   }
@@ -679,7 +689,7 @@ export class TerminalToolProvider implements ToolProvider {
   /**
    * Cleanup all processes
    */
-  private cleanup(): void {
+  async cleanup(): Promise<void> {
     this.logger.debug('Cleaning up terminal processes');
 
     // Close all shell sessions

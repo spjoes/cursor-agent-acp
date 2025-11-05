@@ -304,6 +304,15 @@ export class PromptHandler {
     const { sessionId, content, metadata } = params;
 
     try {
+      // Load session to get working directory
+      const session = await this.sessionManager.loadSession(sessionId);
+      const workingDir = (session.metadata['cwd'] as string | undefined) || process.cwd();
+
+      this.logger.debug('Processing prompt with working directory', {
+        sessionId,
+        cwd: workingDir,
+      });
+
       // Add user message to session
       const userMessage: ConversationMessage = {
         id: this.generateMessageId(),
@@ -319,11 +328,11 @@ export class PromptHandler {
       const processedContent =
         await this.contentProcessor.processContent(content);
 
-      // Send to Cursor CLI
+      // Send to Cursor CLI with working directory
       const cursorResponse = await this.cursorBridge.sendPrompt({
         sessionId,
         content: processedContent,
-        metadata: metadata || {},
+        metadata: { ...metadata, cwd: workingDir },
       });
 
       if (!cursorResponse.success) {
@@ -395,6 +404,15 @@ export class PromptHandler {
     this.activeStreams.set(requestId, abortController);
 
     try {
+      // Load session to get working directory
+      const session = await this.sessionManager.loadSession(sessionId);
+      const workingDir = (session.metadata['cwd'] as string | undefined) || process.cwd();
+
+      this.logger.debug('Processing streaming prompt with working directory', {
+        sessionId,
+        cwd: workingDir,
+      });
+
       // Add user message to session
       const userMessage: ConversationMessage = {
         id: this.generateMessageId(),
@@ -417,11 +435,11 @@ export class PromptHandler {
       // Initialize streaming state in content processor
       this.contentProcessor.startStreaming();
 
-      // Send streaming request to Cursor CLI
+      // Send streaming request to Cursor CLI with working directory
       const streamResponse = await this.cursorBridge.sendStreamingPrompt({
         sessionId,
         content: processedContent,
-        ...(metadata !== undefined && { metadata }),
+        ...(metadata !== undefined && { metadata: { ...metadata, cwd: workingDir } }),
         abortSignal: abortController.signal,
         onChunk: async (chunk: StreamChunk) => {
           if (chunk.type === 'content') {

@@ -14,4 +14,4 @@ process.env.CURSOR_AGENT_ACP_SESSION_DIR = '/tmp/cursor-test-sessions';
 process.setMaxListeners(50);
 
 // Set longer timeout for integration tests
-jest.setTimeout(30000);
+jest.setTimeout(70000);

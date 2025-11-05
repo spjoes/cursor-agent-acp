@@ -18,9 +18,11 @@ module.exports = {
     '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
   },
 
-  testTimeout: 70000,
-  maxWorkers: 8,
+  testTimeout: 10000, // Reduced from 70s to 10s - tests should be much faster with mocks
+  maxWorkers: 1, // Use 1 worker for more stable test execution
   clearMocks: true,
   restoreMocks: true,
   errorOnDeprecated: true,
+  forceExit: true,
+  detectOpenHandles: true,
 };

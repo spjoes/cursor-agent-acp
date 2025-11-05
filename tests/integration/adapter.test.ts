@@ -3,10 +3,13 @@
  *
  * These tests verify the complete integration between all components:
  * - ACP protocol handling
- * - Cursor CLI integration
+ * - Cursor CLI integration (mocked for speed)
  * - Session management
  * - Tool execution
  * - End-to-end request/response flow
+ *
+ * Note: CursorCliBridge is mocked to avoid slow real cursor-agent calls
+ * while still testing all other component integrations.
  */
 
 import { CursorAgentAdapter } from '../../src/adapter/cursor-agent-adapter';
@@ -16,6 +19,14 @@ import type {
   AcpResponse,
   Logger,
 } from '../../src/types';
+import { MockCursorCliBridge } from './mocks/cursor-bridge-mock';
+
+// Mock the CursorCliBridge module
+jest.mock('../../src/cursor/cli-bridge', () => ({
+  CursorCliBridge: jest.fn().mockImplementation((config, logger) => {
+    return new (require('./mocks/cursor-bridge-mock').MockCursorCliBridge)(config, logger);
+  }),
+}));
 
 // Mock logger for tests
 const mockLogger: Logger = {
@@ -58,8 +69,14 @@ describe('CursorAgentAdapter Integration', () => {
 
   afterEach(async () => {
     if (adapter) {
-      await adapter.shutdown();
+      try {
+        await adapter.shutdown();
+      } catch (error) {
+        // Ignore shutdown errors in tests
+      }
     }
+    // Give time for all async cleanup to complete
+    await new Promise((resolve) => setTimeout(resolve, 100));
   });
 
   describe('Initialization', () => {
@@ -592,35 +609,35 @@ describe('CursorAgentAdapter Integration', () => {
         expect(response.id).toBe(`rapid-${index}`);
       });
 
-      // Should complete within reasonable time (increased for sequential processing)
-      expect(duration).toBeLessThan(60000); // 60 seconds max for 5 sequential prompts
-    }, 70000); // 70 second timeout for this test
+      // Should complete quickly with mock
+      expect(duration).toBeLessThan(5000); // 5 seconds max for 5 sequential prompts with mock
+    }); // Use default timeout
 
-    it('should handle rapid prompt 3 specifically', async () => {
+    it('should handle rapid prompt 0 specifically', async () => {
       // Create a session first
       const createRequest: AcpRequest = {
         jsonrpc: '2.0',
         method: 'session/new',
-        id: 'rapid-3-session',
+        id: 'rapid-0-session',
         params: {
-          metadata: { name: 'Rapid Prompt 3 Test Session' },
+          metadata: { name: 'Rapid Prompt 0 Test Session' },
         },
       };
 
       const createResponse = await adapter.processRequest(createRequest);
       const sessionId = createResponse.result.sessionId;
 
-      // Send rapid prompt 3
+      // Send rapid prompt 0
       const promptRequest: AcpRequest = {
         jsonrpc: '2.0',
         method: 'session/prompt',
-        id: 'rapid-3',
+        id: 'rapid-0',
         params: {
           sessionId,
           content: [
             {
               type: 'text',
-              text: 'Rapid prompt 3',
+              text: 'Rapid prompt 0',
             },
           ],
           stream: false,
@@ -631,12 +648,198 @@ describe('CursorAgentAdapter Integration', () => {
       const response = await adapter.processRequest(promptRequest);
       const duration = Date.now() - startTime;
 
-      console.log(`Rapid prompt 3 completed in ${duration}ms`);
+      console.log(`Rapid prompt 0 completed in ${duration}ms`);
 
       // Request should complete successfully
       expect(response.result).toBeDefined();
       expect(response.result.stopReason).toBeDefined();
-      expect(response.id).toBe('rapid-3');
+      expect(response.id).toBe('rapid-0');
+
+      // Should complete quickly with mock
+      expect(duration).toBeLessThan(5000); // 5 seconds max with mock
+    }); // Use default timeout
+
+    it('should handle rapid prompt 1 specifically', async () => {
+      // Create a session first
+      const createRequest: AcpRequest = {
+        jsonrpc: '2.0',
+        method: 'session/new',
+        id: 'rapid-1-session',
+        params: {
+          metadata: { name: 'Rapid Prompt 1 Test Session' },
+        },
+      };
+
+      const createResponse = await adapter.processRequest(createRequest);
+      const sessionId = createResponse.result.sessionId;
+
+      // Send rapid prompt 1
+      const promptRequest: AcpRequest = {
+        jsonrpc: '2.0',
+        method: 'session/prompt',
+        id: 'rapid-1',
+        params: {
+          sessionId,
+          content: [
+            {
+              type: 'text',
+              text: 'Rapid prompt 1',
+            },
+          ],
+          stream: false,
+        },
+      };
+
+      const startTime = Date.now();
+      const response = await adapter.processRequest(promptRequest);
+      const duration = Date.now() - startTime;
+
+      console.log(`Rapid prompt 1 completed in ${duration}ms`);
+
+      // Request should complete successfully
+      expect(response.result).toBeDefined();
+      expect(response.result.stopReason).toBeDefined();
+      expect(response.id).toBe('rapid-1');
+
+      // Should complete within reasonable time (increased from 5s to 15s)
+      expect(duration).toBeLessThan(15000); // 15 seconds max for single prompt
+    });
+
+    it('should handle rapid prompt 2 specifically', async () => {
+      // Create a session first
+      const createRequest: AcpRequest = {
+        jsonrpc: '2.0',
+        method: 'session/new',
+        id: 'rapid-2-session',
+        params: {
+          metadata: { name: 'Rapid Prompt 2 Test Session' },
+        },
+      };
+
+      const createResponse = await adapter.processRequest(createRequest);
+      const sessionId = createResponse.result.sessionId;
+
+      // Send rapid prompt 2
+      const promptRequest: AcpRequest = {
+        jsonrpc: '2.0',
+        method: 'session/prompt',
+        id: 'rapid-2',
+        params: {
+          sessionId,
+          content: [
+            {
+              type: 'text',
+              text: 'Rapid prompt 2',
+            },
+          ],
+          stream: false,
+        },
+      };
+
+      const startTime = Date.now();
+      const response = await adapter.processRequest(promptRequest);
+      const duration = Date.now() - startTime;
+
+      console.log(`Rapid prompt 2 completed in ${duration}ms`);
+
+      // Request should complete successfully
+      expect(response.result).toBeDefined();
+      expect(response.result.stopReason).toBeDefined();
+      expect(response.id).toBe('rapid-2');
+
+      // Should complete within reasonable time (increased from 5s to 15s)
+      expect(duration).toBeLessThan(15000); // 15 seconds max for single prompt
+    });
+
+    it('should handle rapid prompt 3 specifically', async () => {
+        // Create a session first
+        const createRequest: AcpRequest = {
+          jsonrpc: '2.0',
+          method: 'session/new',
+          id: 'rapid-3-session',
+          params: {
+            metadata: { name: 'Rapid Prompt 3 Test Session' },
+          },
+        };
+
+        const createResponse = await adapter.processRequest(createRequest);
+        const sessionId = createResponse.result.sessionId;
+
+        // Send rapid prompt 3
+        const promptRequest: AcpRequest = {
+          jsonrpc: '2.0',
+          method: 'session/prompt',
+          id: 'rapid-3',
+          params: {
+            sessionId,
+            content: [
+              {
+                type: 'text',
+                text: 'Rapid prompt 3',
+              },
+            ],
+            stream: false,
+          },
+        };
+
+        const startTime = Date.now();
+        const response = await adapter.processRequest(promptRequest);
+        const duration = Date.now() - startTime;
+
+        console.log(`Rapid prompt 3 completed in ${duration}ms`);
+
+        // Request should complete successfully
+        expect(response.result).toBeDefined();
+        expect(response.result.stopReason).toBeDefined();
+        expect(response.id).toBe('rapid-3');
+
+        // Should complete within reasonable time (increased from 5s to 15s)
+        expect(duration).toBeLessThan(15000); // 15 seconds max for single prompt
+      },
+      70000
+    ); // 70 second timeout to match integration test config
+
+    it('should handle rapid prompt 4 specifically', async () => {
+      // Create a session first
+      const createRequest: AcpRequest = {
+        jsonrpc: '2.0',
+        method: 'session/new',
+        id: 'rapid-4-session',
+        params: {
+          metadata: { name: 'Rapid Prompt 4 Test Session' },
+        },
+      };
+
+      const createResponse = await adapter.processRequest(createRequest);
+      const sessionId = createResponse.result.sessionId;
+
+      // Send rapid prompt 4
+      const promptRequest: AcpRequest = {
+        jsonrpc: '2.0',
+        method: 'session/prompt',
+        id: 'rapid-4',
+        params: {
+          sessionId,
+          content: [
+            {
+              type: 'text',
+              text: 'Rapid prompt 4',
+            },
+          ],
+          stream: false,
+        },
+      };
+
+      const startTime = Date.now();
+      const response = await adapter.processRequest(promptRequest);
+      const duration = Date.now() - startTime;
+
+      console.log(`Rapid prompt 4 completed in ${duration}ms`);
+
+      // Request should complete successfully
+      expect(response.result).toBeDefined();
+      expect(response.result.stopReason).toBeDefined();
+      expect(response.id).toBe('rapid-4');
 
       // Should complete within reasonable time (increased from 5s to 15s)
       expect(duration).toBeLessThan(15000); // 15 seconds max for single prompt
@@ -684,9 +887,9 @@ describe('CursorAgentAdapter Integration', () => {
       expect(response.result.stopReason).toBeDefined();
       expect(response.id).toBe('rapid-6');
 
-      // Should complete within reasonable time (increased timeout for slow responses)
-      expect(duration).toBeLessThan(120000); // 120 seconds max for single prompt
-    }, 120000); // 120 second timeout
+      // Should complete quickly with mock
+      expect(duration).toBeLessThan(5000); // 5 seconds max with mock
+    }); // Use default timeout
 
     it('should handle rapid prompt 9 specifically', async () => {
       // Create a session first
@@ -730,10 +933,9 @@ describe('CursorAgentAdapter Integration', () => {
       expect(response.result.stopReason).toBeDefined();
       expect(response.id).toBe('rapid-9');
 
-      // Should complete within reasonable time
-      // Note: Actual processing may take longer when Cursor processes the request
-      expect(duration).toBeLessThan(30000); // 30 seconds max for single prompt
-    }, 120000); // 120 second timeout (2 minutes) for long-running prompts
+      // Should complete quickly with mock
+      expect(duration).toBeLessThan(5000); // 5 seconds max with mock
+    }); // Use default timeout
   });
 
   describe('Resource Management', () => {

@@ -345,4 +345,25 @@ export class ToolRegistry {
 
     return null;
   }
+
+  /**
+   * Cleanup all tool providers
+   */
+  async cleanup(): Promise<void> {
+    this.logger.debug('Cleaning up tool registry');
+
+    // Call cleanup on each provider that has a cleanup method
+    for (const [name, provider] of this.providers) {
+      if (typeof (provider as any).cleanup === 'function') {
+        try {
+          this.logger.debug(`Cleaning up provider: ${name}`);
+          await (provider as any).cleanup();
+        } catch (error) {
+          this.logger.warn(`Failed to cleanup provider ${name}`, error);
+        }
+      }
+    }
+
+    this.logger.debug('Tool registry cleanup completed');
+  }
 }

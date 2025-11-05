@@ -5,7 +5,6 @@
  * command execution, authentication, and session management.
  */
 
-import os from 'os';
 import { spawn, ChildProcess } from 'child_process';
 import {
   CursorError,
@@ -373,7 +372,7 @@ export class CursorCliBridge {
     options: CursorCommandOptions
   ): Promise<CursorResponse> {
     const timeoutMs = options.timeout || this.config.cursor.timeout;
-    const workingDir = options.cwd || os.tmpdir();
+    const workingDir = options.cwd || process.cwd();
 
     this.logger.debug(`Spawning cursor-agent with timeout ${timeoutMs}ms`, {
       command,
@@ -508,6 +507,14 @@ export class CursorCliBridge {
     });
 
     try {
+      // Extract working directory from metadata
+      const workingDir = (metadata?.['cwd'] as string | undefined) || process.cwd();
+
+      this.logger.info('Sending prompt to Cursor CLI', {
+        sessionId,
+        cwd: workingDir,
+      });
+
       // Create a temporary file for the prompt content
       const tempFile = `/tmp/cursor-prompt-${Date.now()}.txt`;
       const fs = await import('fs/promises');
@@ -528,10 +535,10 @@ export class CursorCliBridge {
           args.unshift('--resume', sessionId);
         }
 
-        this.logger.debug('Executing cursor-agent command', { args });
-        this.logger.info(`Running: cursor-agent ${args.join(' ')}`);
+        this.logger.debug('Executing cursor-agent command', { args, cwd: workingDir });
+        this.logger.info(`Running: cursor-agent ${args.join(' ')} (cwd: ${workingDir})`);
 
-        const response = await this.executeCommand(args);
+        const response = await this.executeCommand(args, { cwd: workingDir });
 
         this.logger.debug('cursor-agent response', {
           success: response.success,
@@ -624,6 +631,14 @@ export class CursorCliBridge {
     });
 
     try {
+      // Extract working directory from metadata
+      const workingDir = (metadata?.['cwd'] as string | undefined) || process.cwd();
+
+      this.logger.info('Sending streaming prompt to Cursor CLI', {
+        sessionId,
+        cwd: workingDir,
+      });
+
       const args = [
         'agent',
         '--print',
@@ -644,6 +659,7 @@ export class CursorCliBridge {
 
       // Execute streaming command
       const streamOptions: any = {
+        cwd: workingDir,
         onData: async (chunk: string) => {
           processedChunks++;
           responseContent += chunk;
@@ -745,7 +761,7 @@ export class CursorCliBridge {
         // Use 'ignore' for stdin since cursor-agent gets input from args
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env },
-        cwd: cwd || os.tmpdir(),
+        cwd: cwd || process.cwd(),
       });
 
       let stdout = '';

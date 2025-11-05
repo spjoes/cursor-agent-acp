@@ -33,7 +33,7 @@ export class SessionManager {
   private config: AdapterConfig;
   private logger: Logger;
   private sessions = new Map<string, SessionData>();
-  private sessionCleanupInterval?: ReturnType<typeof setInterval>;
+  private sessionCleanupInterval: ReturnType<typeof setInterval> | null = null;
   private processingSessions = new Set<string>(); // Track sessions actively processing prompts
 
   constructor(config: AdapterConfig, logger: Logger) {
@@ -373,9 +373,10 @@ export class SessionManager {
     this.logger.info('Starting session manager cleanup');
 
     try {
-      // Stop cleanup interval
+      // Stop cleanup interval FIRST and set to null
       if (this.sessionCleanupInterval) {
         clearInterval(this.sessionCleanupInterval);
+        this.sessionCleanupInterval = null;
       }
 
       // Persist all active sessions

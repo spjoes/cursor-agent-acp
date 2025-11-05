@@ -189,7 +189,10 @@ describe('PromptHandler', () => {
             ),
             metadata: expect.any(Object),
           }),
-          metadata: { source: 'test' },
+          metadata: expect.objectContaining({
+            source: 'test',
+            cwd: expect.any(String),
+          }),
         });
       });
     });
@@ -558,7 +561,14 @@ describe('PromptHandler', () => {
         },
       };
 
-      mockSessionManager.loadSession.mockResolvedValue({});
+      mockSessionManager.loadSession.mockResolvedValue({
+        id: 'test-session-1',
+        metadata: { name: 'Test Session', cwd: '/test/dir' },
+        conversation: [],
+        state: { lastActivity: new Date(), messageCount: 0 },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
       mockCursorBridge.sendPrompt.mockResolvedValue({
         success: true,
         stdout: 'Response 1',
@@ -620,7 +630,14 @@ describe('PromptHandler', () => {
         },
       };
 
-      mockSessionManager.loadSession.mockResolvedValue({});
+      mockSessionManager.loadSession.mockResolvedValue({
+        id: 'test-session-1',
+        metadata: { name: 'Test Session', cwd: '/test/dir' },
+        conversation: [],
+        state: { lastActivity: new Date(), messageCount: 0 },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
       mockCursorBridge.sendPrompt.mockResolvedValue({
         success: true,
         stdout: 'Great code!',

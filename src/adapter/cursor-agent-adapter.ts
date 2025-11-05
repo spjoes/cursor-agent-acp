@@ -163,15 +163,10 @@ export class CursorAgentAdapter {
    * Shutdown the adapter gracefully
    */
   async shutdown(): Promise<void> {
-    if (!this.isRunning) {
-      this.logger.warn('Adapter is not running');
-      return;
-    }
-
     try {
       this.logger.info('Shutting down ACP adapter...');
 
-      // Close HTTP server
+      // Close HTTP server if running
       if (this.httpServer) {
         await new Promise<void>((resolve) => {
           this.httpServer!.close(() => resolve());
@@ -179,7 +174,7 @@ export class CursorAgentAdapter {
         delete this.httpServer;
       }
 
-      // Cleanup components
+      // Always cleanup components (even if not formally started)
       await this.cleanup();
 
       this.isRunning = false;
@@ -522,9 +517,20 @@ export class CursorAgentAdapter {
     }
 
     const params = (request.params as any) || {};
-    const sessionData = await this.sessionManager.createSession(
-      params['metadata']
-    );
+
+    // Per ACP spec: session/new includes cwd (working directory) parameter
+    // Store this in metadata so we can use it when executing commands
+    const metadata = {
+      ...(params['metadata'] || {}),
+      cwd: params['cwd'] || process.cwd(), // Capture working directory
+    };
+
+    const sessionData = await this.sessionManager.createSession(metadata);
+
+    this.logger.info('Session created with working directory', {
+      sessionId: sessionData.id,
+      cwd: metadata.cwd,
+    });
 
     // Per ACP spec: NewSessionResponse must contain sessionId (required),
     // and optionally modes and models. No other fields.
@@ -705,6 +711,11 @@ export class CursorAgentAdapter {
     // Cleanup in reverse order of initialization
     if (this.promptHandler) {
       await this.promptHandler.cleanup();
+    }
+
+    // Cleanup tool registry (cleans up all tool providers)
+    if (this.toolRegistry) {
+      await this.toolRegistry.cleanup();
     }
 
     if (this.cursorBridge) {
