@@ -41,6 +41,8 @@ describe('Tool System Security', () => {
 
   afterAll(async () => {
     try {
+      // Remove temporary test directory
+      // Note: registry cleanup is handled by afterEach hook
       await fs.rm(tempDir, { recursive: true, force: true });
     } catch (error) {
       console.warn('Failed to cleanup temp directory:', error);
@@ -86,6 +88,21 @@ describe('Tool System Security', () => {
     };
 
     registry = new ToolRegistry(mockConfig, mockLogger);
+  });
+
+  afterEach(async () => {
+    // Always cleanup spawned processes after each test
+    // This ensures shell processes from terminal tests are properly terminated
+    if (registry) {
+      try {
+        await registry.cleanup();
+        // Give sufficient time for all processes to terminate
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      } catch (error) {
+        // Ignore cleanup errors - registry might not have been fully initialized
+        console.debug('Cleanup error (ignored):', error);
+      }
+    }
   });
 
   describe('Filesystem Security', () => {
