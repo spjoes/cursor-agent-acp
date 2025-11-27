@@ -9,6 +9,9 @@ import type {
   ContentBlock,
   Role,
   RequestPermissionRequest,
+  SessionMode,
+  SessionModeId,
+  SessionModeState,
 } from '@agentclientprotocol/sdk';
 
 // ============================================================================
@@ -43,12 +46,24 @@ export interface SessionState {
 // ============================================================================
 // Session Modes
 // Per ACP spec: https://agentclientprotocol.com/protocol/session-modes
+//
+// NOTE: For ACP protocol types (SessionMode, SessionModeId, SessionModeState),
+// import directly from '@agentclientprotocol/sdk'. The types below are
+// internal implementation types only.
+//
+// ACP SDK Types (re-exported for convenience):
+// - SessionMode: A mode the agent can operate in (id, name, description)
+// - SessionModeId: String identifier for a mode
+// - SessionModeState: The set of modes and the one currently active
+//                     (currentModeId, availableModes)
 // ============================================================================
 
-export interface SessionMode {
-  id: string;
-  name: string;
-  description: string;
+// Re-export SDK types for convenience
+export type { SessionMode, SessionModeId, SessionModeState };
+
+// Internal extension of SessionMode for implementation-specific behavior
+// The base SessionMode type comes from @agentclientprotocol/sdk
+export interface InternalSessionModeConfig {
   systemPrompt?: string;
   availableTools?: string[];
   permissionBehavior?: 'strict' | 'permissive' | 'auto';
