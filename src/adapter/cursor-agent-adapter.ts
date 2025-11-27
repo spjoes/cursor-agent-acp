@@ -51,6 +51,7 @@ import {
 } from '../types';
 import { createLogger } from '../utils/logger';
 import { validateConfig } from '../utils/config';
+import { validateObjectParams, createErrorResponse } from '../utils/json-rpc';
 import { SessionManager } from '../session/manager';
 import { CursorCliBridge } from '../cursor/cli-bridge';
 import { ToolRegistry } from '../tools/registry';
@@ -62,6 +63,7 @@ import type { ClientConnection } from '../client/client-connection';
 import { AcpFileSystemClient } from '../client/filesystem-client';
 import { FilesystemToolProvider } from '../tools/filesystem';
 import { SlashCommandsRegistry } from '../tools/slash-commands';
+import { ExtensionRegistry } from '../tools/extension-registry';
 
 export class CursorAgentAdapter implements ClientConnection {
   private config: AdapterConfig;
@@ -78,6 +80,7 @@ export class CursorAgentAdapter implements ClientConnection {
   private initializationHandler?: InitializationHandler;
   private promptHandler?: PromptHandler;
   private slashCommandsRegistry?: SlashCommandsRegistry;
+  private extensionRegistry?: ExtensionRegistry;
 
   // ACP-compliant file system client
   private fileSystemClient?: AcpFileSystemClient;
@@ -423,6 +426,10 @@ export class CursorAgentAdapter implements ClientConnection {
           return await this.handleToolCall(request);
 
         default:
+          // Per ACP spec: Check if this is an extension method (starts with _)
+          if (request.method.startsWith('_')) {
+            return await this.handleExtensionMethod(request);
+          }
           throw new ProtocolError(`Unknown method: ${request.method}`);
       }
     } catch (error) {
@@ -504,6 +511,9 @@ export class CursorAgentAdapter implements ClientConnection {
     this.slashCommandsRegistry = new SlashCommandsRegistry(this.logger);
     this.registerDefaultCommands();
 
+    // Initialize ExtensionRegistry
+    this.extensionRegistry = new ExtensionRegistry(this.logger);
+
     // Set up onChange callback to send available_commands_update notifications
     // Per ACP spec: "The Agent can update the list of available commands at any time"
     // Note: We'll only send notifications for active sessions
@@ -561,6 +571,11 @@ export class CursorAgentAdapter implements ClientConnection {
       this.config,
       this.logger
     );
+
+    // Set extension registry getter for advertising custom capabilities
+    this.initializationHandler.setExtensionRegistryGetter(() => {
+      return this.extensionRegistry;
+    });
 
     this.promptHandler = new PromptHandler({
       sessionManager: this.sessionManager,
@@ -1959,6 +1974,106 @@ export class CursorAgentAdapter implements ClientConnection {
       await this.sessionManager.cleanup();
     }
 
+    // Cleanup extension registry
+    if (this.extensionRegistry) {
+      this.extensionRegistry.clear();
+    }
     this.logger.debug('Cleanup completed');
+  }
+
+  /**
+   * Handle extension method request
+   * Per ACP spec: Extension methods start with underscore and follow JSON-RPC 2.0 semantics
+   *
+   * @param request - The extension method request
+   * @returns JSON-RPC response with result or error
+   */
+  private async handleExtensionMethod(request: Request | Request1): Promise<{
+    jsonrpc: '2.0';
+    id: string | number | null;
+    result?: Record<string, unknown> | null;
+    error?: JsonRpcError;
+  }> {
+    if (!this.extensionRegistry) {
+      this.logger.warn('Extension registry not initialized');
+      return createErrorResponse(request.id, {
+        code: -32601,
+        message: 'Method not found',
+      });
+    }
+
+    const methodName = request.method;
+
+    // Per JSON-RPC 2.0: Validate params is an object (not array/primitive)
+    // ExtensionRegistry expects object params
+    const validation = validateObjectParams(request.params, methodName);
+    if (!validation.valid) {
+      this.logger.debug('Invalid params type for extension method', {
+        method: methodName,
+        error: validation.error,
+      });
+      return createErrorResponse(request.id, validation.error);
+    }
+
+    const paramsObj = validation.params;
+
+    // Check if method is registered
+    if (!this.extensionRegistry.hasMethod(methodName)) {
+      this.logger.debug('Extension method not found', { method: methodName });
+      return createErrorResponse(request.id, {
+        code: -32601,
+        message: 'Method not found',
+      });
+    }
+
+    try {
+      // Call the extension method - returns ExtMethodResponse (Record<string, unknown>)
+      const result = await this.extensionRegistry.callMethod(
+        methodName,
+        paramsObj
+      );
+
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        result,
+      };
+    } catch (error) {
+      this.logger.error('Extension method execution failed', {
+        method: methodName,
+        error,
+      });
+
+      // Return proper JSON-RPC error
+      const errorData: Record<string, unknown> | undefined =
+        error instanceof Error
+          ? {
+              name: error.name,
+              ...(error.stack && { stack: error.stack }),
+            }
+          : undefined;
+
+      return createErrorResponse(request.id, {
+        code: -32603,
+        message: error instanceof Error ? error.message : 'Internal error',
+        ...(errorData && { data: errorData }),
+      });
+    }
+  }
+
+  /**
+   * Get the extension registry
+   * Per ACP spec: Provides access to register extension methods and notifications
+   *
+   * @returns ExtensionRegistry instance
+   */
+  getExtensionRegistry(): ExtensionRegistry {
+    if (!this.extensionRegistry) {
+      throw new AdapterError(
+        'Extension registry not initialized',
+        'COMPONENT_ERROR'
+      );
+    }
+    return this.extensionRegistry;
   }
 }

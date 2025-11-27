@@ -89,6 +89,12 @@ export class InitializationHandler {
   private initConfig: InitializationConfig;
   private clientCapabilities: ClientCapabilities | null = null;
   private clientInfo: Implementation | null = null;
+  private getExtensionRegistry?: () =>
+    | {
+        getRegisteredMethods: () => string[];
+        getRegisteredNotifications: () => string[];
+      }
+    | undefined;
 
   constructor(
     config: AdapterConfig,
@@ -98,6 +104,23 @@ export class InitializationHandler {
     this.config = config;
     this.logger = logger;
     this.initConfig = initConfig;
+  }
+
+  /**
+   * Set extension registry getter for advertising custom capabilities
+   * Per ACP spec: Custom capabilities should be advertised in agentCapabilities._meta
+   *
+   * @param getter - Function that returns extension registry or undefined
+   */
+  setExtensionRegistryGetter(
+    getter: () =>
+      | {
+          getRegisteredMethods: () => string[];
+          getRegisteredNotifications: () => string[];
+        }
+      | undefined
+  ): void {
+    this.getExtensionRegistry = getter;
   }
 
   /**
@@ -733,8 +756,83 @@ export class InitializationHandler {
         // Implementation details for debugging
         implementation: 'cursor-agent-acp-npm',
         repositoryUrl: 'https://github.com/blowmage/cursor-agent-acp-npm',
+
+        // Per ACP spec: Advertise custom extension methods and notifications
+        // Format: namespace -> { methods: [...], notifications: [...] }
+        ...this.buildExtensionCapabilities(),
       },
     };
+  }
+
+  /**
+   * Build extension capabilities for advertising
+   * Per ACP spec: Custom capabilities SHOULD be advertised in agentCapabilities._meta
+   *
+   * @returns Object with extension methods and notifications grouped by namespace
+   */
+  private buildExtensionCapabilities(): Record<string, unknown> {
+    if (!this.getExtensionRegistry) {
+      return {};
+    }
+
+    const registry = this.getExtensionRegistry();
+    if (!registry) {
+      return {};
+    }
+
+    const methods = registry.getRegisteredMethods();
+    const notifications = registry.getRegisteredNotifications();
+
+    if (methods.length === 0 && notifications.length === 0) {
+      return {};
+    }
+
+    // Group methods and notifications by namespace
+    // Per ACP spec: Extension names start with underscore
+    // Examples: "_namespace/method" -> "namespace", "_method" -> uses the name itself as namespace
+    const namespaces = new Map<
+      string,
+      { methods: string[]; notifications: string[] }
+    >();
+
+    for (const method of methods) {
+      // Extract namespace from method name
+      // "_namespace/method" -> namespace = "namespace"
+      // "_method" -> namespace = "method" (no slash, so entire name after underscore is the namespace)
+      const match = method.match(/^_([^/]+)/);
+      const namespace = match ? match[1]! : 'default';
+
+      if (!namespaces.has(namespace)) {
+        namespaces.set(namespace, { methods: [], notifications: [] });
+      }
+      namespaces.get(namespace)!.methods.push(method);
+    }
+
+    for (const notification of notifications) {
+      // Extract namespace from notification name
+      // "_namespace/event" -> namespace = "namespace"
+      // "_event" -> namespace = "event" (no slash, so entire name after underscore is the namespace)
+      const match = notification.match(/^_([^/]+)/);
+      const namespace = match ? match[1]! : 'default';
+
+      if (!namespaces.has(namespace)) {
+        namespaces.set(namespace, { methods: [], notifications: [] });
+      }
+      namespaces.get(namespace)!.notifications.push(notification);
+    }
+
+    // Build capabilities object
+    const capabilities: Record<string, unknown> = {};
+    for (const [namespace, extensions] of namespaces) {
+      capabilities[namespace] = {
+        ...(extensions.methods.length > 0 && { methods: extensions.methods }),
+        ...(extensions.notifications.length > 0 && {
+          notifications: extensions.notifications,
+        }),
+      };
+    }
+
+    return capabilities;
   }
 
   /**

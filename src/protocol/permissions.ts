@@ -13,6 +13,7 @@ import type {
 } from '@agentclientprotocol/sdk';
 import type { Error as JsonRpcError } from '@agentclientprotocol/sdk';
 import { ProtocolError, type Logger, type PermissionOutcome } from '../types';
+import { validateObjectParams, createErrorResponse } from '../utils/json-rpc';
 
 export interface PermissionHandlerOptions {
   logger: Logger;
@@ -93,28 +94,33 @@ export class PermissionsHandler {
     result?: any | null;
     error?: JsonRpcError;
   }> {
-    const params = request.params as RequestPermissionRequest;
-
-    if (!params || typeof params !== 'object') {
-      throw new ProtocolError('Invalid permission request parameters');
+    // Per JSON-RPC 2.0: Validate params is an object (not array/primitive)
+    const validation = validateObjectParams(
+      request.params,
+      'session/request_permission'
+    );
+    if (!validation.valid) {
+      return createErrorResponse(request.id, validation.error);
     }
 
-    if (!params.sessionId || typeof params.sessionId !== 'string') {
+    const params = validation.params;
+
+    if (!params['sessionId'] || typeof params['sessionId'] !== 'string') {
       throw new ProtocolError('sessionId is required and must be a string');
     }
 
-    if (!params.toolCall || typeof params.toolCall !== 'object') {
+    if (!params['toolCall'] || typeof params['toolCall'] !== 'object') {
       throw new ProtocolError('toolCall is required and must be an object');
     }
 
-    if (!Array.isArray(params.options) || params.options.length === 0) {
+    if (!Array.isArray(params['options']) || params['options'].length === 0) {
       throw new ProtocolError(
         'options is required and must be a non-empty array'
       );
     }
 
     // Validate options
-    for (const option of params.options) {
+    for (const option of params['options'] as any[]) {
       if (!this.isValidPermissionOption(option)) {
         throw new ProtocolError(
           `Invalid permission option: ${JSON.stringify(option)}`
@@ -124,9 +130,9 @@ export class PermissionsHandler {
 
     this.logger.debug('Processing permission request', {
       requestId: request.id,
-      sessionId: params.sessionId,
-      toolCallId: params.toolCall.toolCallId,
-      optionCount: params.options.length,
+      sessionId: params['sessionId'],
+      toolCallId: (params['toolCall'] as any).toolCallId,
+      optionCount: (params['options'] as any[]).length,
     });
 
     // In a real implementation, this would:
@@ -139,13 +145,13 @@ export class PermissionsHandler {
     // - Require explicit permission for edits/deletes/executes
 
     const outcome = this.getDefaultPermissionOutcome(
-      params.toolCall.kind || 'other',
-      params.options
+      (params['toolCall'] as any).kind || 'other',
+      params['options'] as any[]
     );
 
     this.logger.debug('Permission request outcome', {
       requestId: request.id,
-      sessionId: params.sessionId,
+      sessionId: params['sessionId'],
       outcome,
     });
 

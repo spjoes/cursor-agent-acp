@@ -197,6 +197,8 @@ export class CursorAgentImplementation implements Agent {
 
   /**
    * Extension method handler
+   * Per ACP spec: Extension methods start with underscore and follow JSON-RPC 2.0 semantics
+   * Returns proper JSON-RPC error (-32601) if method not found
    */
   async extMethod(
     method: string,
@@ -204,12 +206,32 @@ export class CursorAgentImplementation implements Agent {
   ): Promise<Record<string, unknown>> {
     this.logger.debug('Agent.extMethod called', { method, params });
 
-    this.logger.warn('Extension methods not implemented', { method });
-    throw new Error(`Extension method not supported: ${method}`);
+    if (!this.adapter) {
+      throw new Error('Adapter not available');
+    }
+
+    try {
+      const registry = this.adapter.getExtensionRegistry();
+      const result = await registry.callMethod(method, params);
+      return result;
+    } catch (error) {
+      // If method not found, throw proper JSON-RPC error
+      if (
+        error instanceof Error &&
+        error.message.startsWith('Extension method not found:')
+      ) {
+        const notFoundError = new Error('Method not found');
+        (notFoundError as any).code = -32601;
+        throw notFoundError;
+      }
+      // Re-throw other errors
+      throw error;
+    }
   }
 
   /**
    * Extension notification handler
+   * Per ACP spec: Extension notifications SHOULD be ignored if unrecognized
    */
   async extNotification(
     method: string,
@@ -217,9 +239,27 @@ export class CursorAgentImplementation implements Agent {
   ): Promise<void> {
     this.logger.debug('Agent.extNotification called', { method, params });
 
-    this.logger.info('Extension notification received but not handled', {
-      method,
-    });
-    // Notifications don't return anything - just log and ignore
+    if (!this.adapter) {
+      // Per ACP spec: SHOULD ignore unrecognized notifications
+      this.logger.debug(
+        'Adapter not available, ignoring extension notification',
+        {
+          method,
+        }
+      );
+      return;
+    }
+
+    try {
+      const registry = this.adapter.getExtensionRegistry();
+      await registry.sendNotification(method, params);
+    } catch (error) {
+      // Per ACP spec: SHOULD ignore unrecognized notifications
+      // Log but don't throw
+      this.logger.debug('Extension notification not handled', {
+        method,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }

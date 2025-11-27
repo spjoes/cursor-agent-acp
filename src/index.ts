@@ -10,6 +10,7 @@ export { SessionManager } from './session/manager';
 export { CursorCliBridge } from './cursor/cli-bridge';
 export { ToolRegistry } from './tools/registry';
 export { SlashCommandsRegistry } from './tools/slash-commands';
+export { ExtensionRegistry } from './tools/extension-registry';
 
 // Type exports
 export type {
@@ -42,6 +43,18 @@ export type {
 // Protocol types
 export type { InitializationConfig } from './protocol/initialization';
 
+// Extension types
+export type {
+  ExtensionMethodHandler,
+  ExtensionNotificationHandler,
+  ExtMethodRequest,
+  ExtMethodResponse,
+  ExtNotificationParams,
+} from './tools/extension-registry';
+
+// JSON-RPC 2.0 utility types
+export type { ParamsValidationResult } from './utils/json-rpc';
+
 // Import the type for the default config
 import type { AdapterConfig } from './types';
 
@@ -49,6 +62,12 @@ import type { AdapterConfig } from './types';
 export { createLogger } from './utils/logger';
 export { validateConfig } from './utils/config';
 export { formatError } from './utils/error-formatter';
+export {
+  validateObjectParams,
+  createErrorResponse,
+  createSuccessResponse,
+  JsonRpcErrorCode,
+} from './utils/json-rpc';
 
 // Version information
 export const VERSION = '0.1.0';
