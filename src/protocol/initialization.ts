@@ -74,6 +74,28 @@ interface InitializationMetrics {
   totalTime: number;
 }
 
+/**
+ * Session capabilities structure
+ * Per ACP schema: https://agentclientprotocol.com/protocol/schema#sessioncapabilities
+ */
+interface SessionCapabilities {
+  /**
+   * Extension point for custom session capabilities
+   * Per ACP spec: _meta field for implementation-specific information
+   */
+  _meta?: {
+    /**
+     * Indicates whether the agent supports session modes
+     */
+    supportsSessionModes?: boolean;
+    /**
+     * Indicates whether the agent supports session/set_mode method
+     */
+    supportsSetMode?: boolean;
+    [key: string]: unknown;
+  };
+}
+
 export class InitializationHandler {
   // Protocol version constants
   private static readonly SUPPORTED_VERSIONS: readonly number[] = [1];
@@ -687,6 +709,7 @@ export class InitializationHandler {
   /**
    * Builds agent capabilities based on configuration and cursor availability
    * Per ACP spec: https://agentclientprotocol.com/protocol/initialization#agent-capabilities
+   * Per ACP schema: https://agentclientprotocol.com/protocol/schema#agentcapabilities
    */
   private buildAgentCapabilities(
     connectivityResult?: ConnectivityTestResult
@@ -696,7 +719,12 @@ export class InitializationHandler {
       connectivityResult?.success === true &&
       connectivityResult?.authenticated === true;
 
-    return {
+    // Build capabilities object with sessionCapabilities
+    // Note: AgentCapabilities type in SDK 0.5.1 may not include sessionCapabilities yet,
+    // but we include it per the ACP schema for forward compatibility
+    const capabilities: AgentCapabilities & {
+      sessionCapabilities?: SessionCapabilities;
+    } = {
       // Session Management
       // -----------------
       // Per ACP spec: Indicates whether agent supports session/load
@@ -739,6 +767,22 @@ export class InitializationHandler {
         sse: false,
       },
 
+      // Session Capabilities
+      // --------------------
+      // Per ACP schema: https://agentclientprotocol.com/protocol/schema#sessioncapabilities
+      // Indicates which session methods and notifications are supported
+      // As a baseline, all agents MUST support session/new, session/prompt, session/cancel, session/update
+      // Note: session/load is handled by top-level loadSession capability
+      sessionCapabilities: {
+        // Per ACP spec: Extension point for custom session capabilities
+        _meta: {
+          // Advertise that we support session modes per the spec
+          supportsSessionModes: true,
+          // Indicate that we support session/set_mode method
+          supportsSetMode: true,
+        },
+      },
+
       // Extension point for custom capabilities
       // Per ACP spec: _meta field for implementation-specific information
       _meta: {
@@ -762,6 +806,8 @@ export class InitializationHandler {
         ...this.buildExtensionCapabilities(),
       },
     };
+
+    return capabilities;
   }
 
   /**
