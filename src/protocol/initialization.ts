@@ -56,10 +56,10 @@ function getPackageVersion(): string {
   try {
     const packagePath = join(__dirname, '../../package.json');
     const pkg = JSON.parse(readFileSync(packagePath, 'utf-8'));
-    return pkg.version || '0.5.1';
+    return pkg.version || '0.5.2';
   } catch {
     // Fallback version if package.json cannot be read
-    return '0.5.1';
+    return '0.5.2';
   }
 }
 
