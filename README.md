@@ -169,8 +169,6 @@ Stdio is the default and recommended transport for ACP because:
 3. **Specification Compliant**: Follows ACP transport specification exactly
 4. **SDK Integration**: Full support via `@agentclientprotocol/sdk`
 
-For more details, see [`docs/TRANSPORTS.md`](docs/TRANSPORTS.md).
-
 ## Configuration
 
 The adapter supports various configuration options:

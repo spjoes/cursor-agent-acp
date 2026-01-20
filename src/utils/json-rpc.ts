@@ -145,7 +145,7 @@ export function toRequestId(id: string | number | null | undefined): RequestId {
     if (!Number.isInteger(id)) {
       // JSON-RPC 2.0 discourages fractional IDs; we truncate to the integer part but also log a warning
       // so that this potentially surprising behavior is visible at runtime.
-      // eslint-disable-next-line no-console
+
       console.warn(
         `Fractional JSON-RPC request id '${id}' received; truncating to integer part before bigint conversion.`
       );
