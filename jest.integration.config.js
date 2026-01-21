@@ -1,6 +1,7 @@
 module.exports = {
-  preset: 'ts-jest',
+  preset: 'ts-jest/presets/default-esm',
   testEnvironment: 'node',
+  extensionsToTreatAsEsm: ['.ts'],
   testMatch: ['**/tests/integration/**/*.test.ts', '**/tests/integration/**/*.spec.ts'],
   testPathIgnorePatterns: ['/node_modules/', '/dist/', '/tests/unit/', '/tests/fixtures/'],
 
@@ -20,7 +21,10 @@ module.exports = {
   // testSequencer: '<rootDir>/tests/integration/sequencer.js', // Disabled - not needed with maxWorkers: 1
 
   transform: {
-    '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
+    '^.+\\.tsx?$': ['ts-jest', {
+      tsconfig: 'tsconfig.json',
+      useESM: true,
+    }],
     '^.+\\.m?js$': ['ts-jest', { tsconfig: { module: 'commonjs' } }],
   },
 
