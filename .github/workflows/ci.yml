@@ -8,37 +8,33 @@ on:
 
 jobs:
   test:
-    name: Test, Lint, and Format Check
+    name: Build and Test Go App
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x, 22.x, 24.x, 25.x]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'npm'
+          go-version-file: go.mod
+          cache: true
 
-      - name: Install dependencies
-        run: npm install
+      - name: Check formatting
+        run: |
+          UNFORMATTED="$(gofmt -l .)"
+          if [ -n "$UNFORMATTED" ]; then
+            echo "The following files are not gofmt-formatted:"
+            echo "$UNFORMATTED"
+            exit 1
+          fi
 
-      - name: Build project
-        run: npm run build
+      - name: Run go vet
+        run: go vet ./...
 
       - name: Run tests
-        run: npm run test
+        run: go test ./...
 
-      - name: Run integration tests
-        run: npm run test:integration
-
-      - name: Run linter
-        run: npm run lint
-
-      - name: Run formatter
-        run: npm run format
+      - name: Build project
+        run: go build -v ./cmd/cursor-agent-acp
