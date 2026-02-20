@@ -37,4 +37,10 @@ jobs:
         run: go test ./...
 
       - name: Build project
-        run: go build -v ./cmd/cursor-agent-acp
+        run: |
+          PACKAGES="$(go list ./...)"
+          if [ -z "$PACKAGES" ]; then
+            echo "No Go packages found to build."
+            exit 1
+          fi
+          go build -v $PACKAGES
