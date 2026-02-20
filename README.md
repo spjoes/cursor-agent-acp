@@ -2,7 +2,7 @@
 
 An entirely AI generated Agent Client Protocol (ACP) adapter for Cursor CLI, enabling seamless AI-powered coding assistance in ACP-compliant editors like Zed.
 
-> This is a completely "vibe-coded" reimplementation of the original Node.js `cursor-agent-acp` server, written in Go. THIS IS SLOP.
+> This is a completely "vibe-coded" reimplementation of the original Node.js `cursor-agent-acp` server, written in Go. I AM AWARE THIS IS SLOP.
 
 ## Why?
 I wanted the agent server to be more portable and easier to deploy without Node.js dependencies. Especially in a NixOS setup, like I have, a single Go binary is much easier to manage than an npm package.
