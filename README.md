@@ -5,8 +5,7 @@ An entirely AI generated Agent Client Protocol (ACP) adapter for Cursor CLI, ena
 > This is a completely "vibe-coded" reimplementation of the original Node.js `cursor-agent-acp` server, written in Go. THIS IS SLOP.
 
 ## Why?
-idk. I wanted to see if it could do it honestly.
-I also wanted the agent server to be more portable and easier to deploy without Node.js dependencies.
+I wanted the agent server to be more portable and easier to deploy without Node.js dependencies. Especially in a NixOS setup, like I have, a single Go binary is much easier to manage than an npm package.
 
 ## What is included
 
